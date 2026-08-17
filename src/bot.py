@@ -41,7 +41,7 @@ class Orion(commands.Bot):
         self.logger.info("Connecting to discord...")
 
     async def _load_extensions(self) -> None:
-        for extension in ():
+        for extension in ("chat_logging",   ):
             await self.load_extension(f"cogs.{extension}")
 
 bot = Orion()
