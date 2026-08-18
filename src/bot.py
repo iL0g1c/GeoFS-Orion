@@ -51,7 +51,7 @@ class Orion(commands.Bot):
         except Exception as e:
             self.logger.error(f"Exception while syncing commands. Error: {e}")
 
-        self.logger.log(20, "Starting task processing loops...")
+        self.logger.info("Starting task processing loops...")
 
         self.logger.info("Connecting to discord...")
 
