@@ -3,7 +3,7 @@ from discord.ext import commands, tasks
 from dotenv import load_dotenv
 import os
 import logging
-import json
+import time
 import asyncio
 from pymongo import MongoClient
 import sys
@@ -64,10 +64,11 @@ class Orion(commands.Bot):
 
     @tasks.loop(seconds=1)
     async def process_tasks(self):
+        start_time = time.time()
         geofs_monitor = self.get_cog("GeoFSMonitor")
         # Collect data
         data = await asyncio.to_thread(geofs_monitor.process_users)
-        
+
         # process tasks from the queue
         for embed_item in data:
             if embed_item['type'] == 'aircraft_change':
@@ -83,6 +84,8 @@ class Orion(commands.Bot):
             else:
                 self.logger.error(f"Error processing task {embed_item['type']}")
                 continue
+        end_time = time.time()
+        self.info.log(f"The loop took {end_time - start_time} seconds to execute.")
 
     @process_tasks.before_loop
     async def before_process_tasks(self):
