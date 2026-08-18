@@ -63,7 +63,6 @@ class Orion(commands.Bot):
 
     @tasks.loop(seconds=1)
     async def process_tasks(self):
-        self.logger.info("Looped.")
         geofs_monitor = self.get_cog("GeoFSMonitor")
         # Collect data
         data = geofs_monitor.process_users()

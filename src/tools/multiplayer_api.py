@@ -123,6 +123,7 @@ class MultiplayerAPI:
                 msgs = resp.get("chatMessages", [])
 
                 for m in msgs:
+                    m["serverTime"] = resp["serverTime"] / 1000
                     if "msg" in m and m["msg"]:
                         m["msg"] = unquote_plus(m["msg"])
                 self.log.debug("[mp] getMessages: ok in %.2fs; msgs=%d lastMsgId=%s", time.time() - t0, len(msgs), self.lastMsgID)

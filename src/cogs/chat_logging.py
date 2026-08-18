@@ -44,10 +44,11 @@ class ChatLogging(commands.Cog):
             self.printMessages.start()
             self.chatHeartbeat.start()
     
-    # chat_group = app_commands.Group(name="chat", description="GeoFS chat discord bridge (Historical BiFrost module)")
+    chat_group = app_commands.Group(name="chat", description="GeoFS chat discord bridge (Historical BiFrost module)")
 
     @tasks.loop(seconds=5)
     async def printMessages(self):
+        print(1)
         # Chat logging loop
         chat_channel_id = self.config.load_config()["chatLogChannel"] # gets config
 
@@ -121,12 +122,13 @@ class ChatLogging(commands.Cog):
             discord_message = ""
             mongodb_documents = []
             for msg in messages:
-                discord_message += f"({msg.get('acid', '?')}) | {msg.get('cs','?')}: {msg.get('msg','')}\n"
+                timestamp = datetime.fromtimestamp(msg['serverTime'])
+                discord_message += f"(`{timestamp}` {msg.get('acid', '?')}) | {msg.get('cs','?')}: {msg.get('msg','')}\n"
                 mongodb_documents.append({
                     'accountID': msg.get('acid'),
                     'callsign': msg.get('cs'),
                     'message': msg.get('msg'),
-                    'timestamp': datetime.now()
+                    'timestamp': timestamp
                 })
             
             if discord_message != "":
