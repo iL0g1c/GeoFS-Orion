@@ -6,6 +6,7 @@ import logging
 import json
 import asyncio
 from pymongo import MongoClient
+import sys
 
 from cogs import geofs_monitor,config,chat_logging
 
@@ -23,7 +24,7 @@ class Orion(commands.Bot):
         # Logger setup
         self.logger = logging.getLogger('Orion-Logger')
         self.logger.setLevel(logging.INFO)
-        self.stream_handler = logging.StreamHandler()
+        self.stream_handler = logging.StreamHandler(sys.stdout)
         self.logger.addHandler(self.stream_handler)
 
         intents = discord.Intents.all()
