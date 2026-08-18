@@ -70,7 +70,6 @@ class Orion(commands.Bot):
 
         # process tasks from the queue
         for embed_item in data:
-            print(embed_item['type'])
             if embed_item['type'] == 'aircraft_change':
                 await self.process_aircraft_change(embed_item['data'])
             elif embed_item['type'] == 'new_account':

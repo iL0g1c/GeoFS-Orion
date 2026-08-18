@@ -48,7 +48,6 @@ class ChatLogging(commands.Cog):
 
     @tasks.loop(seconds=5)
     async def printMessages(self):
-        print(1)
         # Chat logging loop
         chat_channel_id = self.config.load_config()["chatLogChannel"] # gets config
 
@@ -118,7 +117,6 @@ class ChatLogging(commands.Cog):
                     except Exception as e:
                         self.logger.error("[tick %d] re-handshake failed: %s", tick_id, e)
                 messages = []
-            print(2)
             # builds message string for discord
             discord_message = ""
             mongodb_documents = []
