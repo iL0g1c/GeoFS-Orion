@@ -120,7 +120,15 @@ class ChatLogging(commands.Cog):
             mongodb_documents = []
             for msg in messages:
                 timestamp = datetime.fromtimestamp(msg['serverTime'])
-                discord_message += f"(`{timestamp}` {msg.get('acid', '?')}) | {msg.get('cs','?')}: {msg.get('msg','')}\n"
+                ansi_light_gray = "\u001b[0;37m"
+                ansi_cyan = "\u001b[0;36m"
+                ansi_yellow = "\u001b[0;33m"
+                ansi_reset = "\u001b[0m"
+                discord_message += (
+                    f"{ansi_light_gray}{timestamp}{ansi_reset} "
+                    f"({ansi_cyan}{msg['acid']}{ansi_reset}) | "
+                    f"{ansi_yellow}{msg['cs']}{ansi_reset}: {msg['msg']}\n"
+                )
                 mongodb_documents.append({
                     'accountID': msg.get('acid'),
                     'callsign': msg.get('cs'),
@@ -129,7 +137,8 @@ class ChatLogging(commands.Cog):
                 })
             
             if discord_message != "":
-                await chat_channel.send(discord_message, allowed_mentions=AllowedMentions.none())
+                formatted_message = f"```ansi\n{discord_message}```"
+                await chat_channel.send(formatted_message, allowed_mentions=AllowedMentions.none())
             if mongodb_documents != []:
                 try:
                    self.mongo_db_database["chat_messages"].insert_many(mongodb_documents)
