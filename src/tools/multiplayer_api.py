@@ -72,7 +72,8 @@ class MultiplayerAPI:
                 timeout=(5, 15),
                 max_json_retries=2,
                 cookies={"PHPSESSID": self.sessionID},
-                headers=self.headers,            )
+                headers=self.headers,     
+            )
             if not resp2:
                 print("Second handshake call failed, retrying in 5s…")
                 traceback.print_exc()

@@ -144,8 +144,3 @@ class GeoFSMonitor(commands.Cog):
 
         self.batch_processors['users'].flush_batch()
         return self.bundled_embeds
-
-async def setup(bot: commands.Bot):
-    Database = getattr(bot, "Database")
-    BotLogger = getattr(bot, "BotLogger")
-    await bot.add_cog(GeoFSMonitor(bot, Database, BotLogger))

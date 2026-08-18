@@ -43,8 +43,6 @@ class ChatLogging(commands.Cog):
             self._last_msgid_change_ts = time.time()
             self.printMessages.start()
             self.chatHeartbeat.start()
-    
-    chat_group = app_commands.Group(name="chat", description="GeoFS chat discord bridge (Historical BiFrost module)")
 
     @tasks.loop(seconds=5)
     async def printMessages(self):
@@ -173,10 +171,3 @@ class ChatLogging(commands.Cog):
             getattr(self.multiplayerAPI, "myID", None),
             getattr(self.multiplayerAPI, "lastMsgID", None)
         )
-
-async def setup(bot: commands.Bot):
-    SessionID = getattr(bot, "SessionID")
-    AccountID = getattr(bot, "AccountID")
-    MongoDBDatabase = getattr(bot, "MongoDBDatabase")
-    Logger = getattr(bot, "Logger")
-    await bot.add_cog(ChatLogging(bot, SessionID, AccountID, MongoDBDatabase, Logger))

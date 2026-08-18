@@ -66,8 +66,8 @@ class Orion(commands.Bot):
     async def process_tasks(self):
         geofs_monitor = self.get_cog("GeoFSMonitor")
         # Collect data
-        data = geofs_monitor.process_users()
-
+        data = await asyncio.to_thread(geofs_monitor.process_users)
+        
         # process tasks from the queue
         for embed_item in data:
             if embed_item['type'] == 'aircraft_change':

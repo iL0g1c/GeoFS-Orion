@@ -8,6 +8,3 @@ class Config(commands.Cog):
     def load_config(self):
         with open("src/config.json", "r") as f:
             return json.load(f)
-
-async def setup(bot: commands.Bot):
-    await bot.add_cog(Config(bot))
