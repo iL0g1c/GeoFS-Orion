@@ -70,22 +70,27 @@ class Orion(commands.Bot):
         data = await asyncio.to_thread(geofs_monitor.process_users)
 
         # process tasks from the queue
-        for embed_item in data:
-            if embed_item['type'] == 'aircraft_change':
-                await self.process_aircraft_change(embed_item['data'])
-            elif embed_item['type'] == 'new_account':
-                await self.process_new_account(embed_item['data'])
-            elif embed_item['type'] == 'callsign_change':
-                await self.process_callsign_change(embed_item['data'])
-            elif embed_item['type'] == 'teleportation':
-                await self.process_teleportation(embed_item['data'])
-            elif embed_item['type'] == 'activity_change':
-                await self.process_activity_change(embed_item['data'])
-            else:
-                self.logger.error(f"Error processing task {embed_item['type']}")
-                continue
+        batches = {
+            "aircraft_change": [],
+            "new_account": [],
+            "callsign_change": [],
+            "teleportation": [],
+            "activity_change": [],
+        }
+
+        for item in data:
+            event_type = item.get("type")
+            if event_type in batches:
+                batches[event_type].append(item.get("data", item))
+
+        await self.dispatch_messages_batch("aircraft_change", batches["aircraft_change"], self.format_aircraft_messages)
+        await self.dispatch_messages_batch("new_account", batches["new_account"], self.format_new_account_messages)
+        await self.dispatch_messages_batch("callsign_change", batches["callsign_change"], self.format_callsign_messages)
+        await self.dispatch_messages_batch("teleportation", batches["teleportation"], self.format_teleport_messages)
+        await self.dispatch_messages_batch("activity_change", batches["activity_change"], self.format_activity_messages)
+
         end_time = time.time()
-        self.info.log(f"The loop took {end_time - start_time} seconds to execute.")
+        self.logger.info(f"The loop took {end_time - start_time:.2f} seconds to execute.")
 
     @process_tasks.before_loop
     async def before_process_tasks(self):
@@ -94,71 +99,80 @@ class Orion(commands.Bot):
     @process_tasks.error
     async def process_tasks_error(self, error):
         self.logger.error(f"Process_tasks loop crashed with error: {error}")
-    
-    async def process_aircraft_change(self, data):
-        channel = await self.get_channel_config("aircraft_change")
-        if not channel or not self.config.get("displayAircraftChanges", True):
-            return
-        
-        embed = discord.Embed(
-            title="Aircraft Change",
-            description=f"Callsign: {data['callsign']}\n Old Aircraft: {data['oldAircraft']}\n New Aircraft: {data['newAircraft']}",
-            color=discord.Color.green()
-        )
-        await self.send_embed(channel, embed)
 
-    async def process_new_account(self, data):
-        channel = await self.get_channel_config("new_account")
-        if not channel or not self.config.get("displayNewAccounts", True):
+    async def dispatch_messages_batch(self, event_type: str, items: list[dict], formatter_fn):
+        if not items:
             return
-        
-        embed = discord.Embed(
-            title="New Account",
-            description=f"Account ID: {data['acid']}\n Callsign: {data['callsign']}",
-            color=discord.Color.green()
-        )
-        await self.send_embed(channel, embed)
+            
+        channel = await self.get_channel_config(event_type)
+        if not channel:
+            return
 
-    async def process_callsign_change(self, data):
-        channel = await self.get_channel_config("callsign_change")
-        if not channel or not self.config.get("displayCallsignChanges", True):
-            return
-        
-        embed = discord.Embed(
-            title="Callsign Change",
-            description=f"Acoount ID: {data['acid']}\n Old Callsign: {data['oldCallsign']}\n New Callsign: {data['newCallsign']}",
-            color=discord.Color.green()
-        )
-        await self.send_embed(channel, embed)
+        message_content = formatter_fn(items)
+        if message_content:
+            async with self.lock:
+                await channel.send(message_content)
+                await asyncio.sleep(self.throttleInterval)
 
-    async def process_teleportation(self, data):
-        channel = await self.get_channel_config("teleporation")
-        if not channel or not self.config.get("displayTeleporations", True):
-            return
-        
-        embed = discord.Embed(
-            title="Teleporation",
-            description=f"{data['acid']}\n Old Position: {data['oldLatitude']}, {data['oldLongitude']}\n New Position: {data['newLatitude']}, {data['newLongitude']}\n Distance: {data['distance']} km",
-            color=discord.Color.green()
-        )
-        await self.send_embed(channel, embed)
+    def format_aircraft_messages(self, items: list[dict]) -> str:
+        # \u001b[34m = Blue, \u001b[32m = Green, \u001b[33m = Yellow, \u001b[36m = Cyan, \u001b[0m = Reset
+        lines = ["```ansi"]
+        for item in items[:15]:
+            lines.append(
+                f"\u001b[34m[AIRCRAFT]\u001b[0m \u001b[32m{item['acid']}\u001b[0m: "
+                f"\u001b[33m{item['oldAircraft']}\u001b[0m -> \u001b[36m{item['newAircraft']}\u001b[0m"
+            )
+        if len(items) > 15:
+            lines.append(f"\u001b[30m... and {len(items) - 15} more\u001b[0m")
+        lines.append("```")
+        return "\n".join(lines)
 
-    async def process_activity_change(self, data):
-        channel = await self.get_channel_config("activity_change")
-        if not channel or not self.config.get("displayActivityChanges", True):
-            return
-        
-        embed = discord.Embed(
-            title="Activity Change",
-            description=f"{data['acid']}\n Status: {data['status']}",
-            color=discord.Color.green()
-        )
-        await self.send_embed(channel, embed)
-    
-    async def send_embed(self, channel, embed):
-        async with self.lock:
-            await channel.send(embed=embed)
-            await asyncio.sleep(self.throttleInterval)
+    def format_teleport_messages(self, items: list[dict]) -> str:
+        # \u001b[35m = Magenta, \u001b[31m = Red
+        lines = ["```ansi"]
+        for item in items[:15]:
+            lines.append(
+                f"\u001b[35m[TELEPORT]\u001b[0m Account \u001b[32m{item['acid']}\u001b[0m moved \u001b[31m{round(item['distance'])} km\u001b[0m"
+            )
+        if len(items) > 15:
+            lines.append(f"\u001b[30m... and {len(items) - 15} more\u001b[0m")
+        lines.append("```")
+        return "\n".join(lines)
+
+    def format_callsign_messages(self, items: list[dict]) -> str:
+        lines = ["```ansi"]
+        for item in items[:15]:
+            lines.append(
+                f"\u001b[36m[CALLSIGN]\u001b[0m Account \u001b[32m{item['acid']}\u001b[0m: "
+                f"\u001b[33m{item['oldCallsign']}\u001b[0m -> \u001b[36m{item['newCallsign']}\u001b[0m"
+            )
+        if len(items) > 15:
+            lines.append(f"\u001b[30m... and {len(items) - 15} more\u001b[0m")
+        lines.append("```")
+        return "\n".join(lines)
+
+    def format_new_account_messages(self, items: list[dict]) -> str:
+        lines = ["```ansi"]
+        for item in items[:15]:
+            lines.append(
+                f"\u001b[32m[NEW ACCT]\u001b[0m \u001b[32m{item['acid']}\u001b[0m (\u001b[36m{item['callsign']}\u001b[0m)"
+            )
+        if len(items) > 15:
+            lines.append(f"\u001b[30m... and {len(items) - 15} more\u001b[0m")
+        lines.append("```")
+        return "\n".join(lines)
+
+    def format_activity_messages(self, items: list[dict]) -> str:
+        lines = ["```ansi"]
+        for item in items[:15]:
+            status_color = "\u001b[32m" if item['status'] == 'online' else "\u001b[31m"
+            lines.append(
+                f"\u001b[33m[ACTIVITY]\u001b[0m Account \u001b[36m{item['acid']}\u001b[0m is now {status_color}{item['status']}\u001b[0m"
+            )
+        if len(items) > 15:
+            lines.append(f"\u001b[30m... and {len(items) - 15} more\u001b[0m")
+        lines.append("```")
+        return "\n".join(lines)
 
     async def get_channel_config(self, event_type): # gets the channel for the event type
         self.config
@@ -168,7 +182,7 @@ class Orion(commands.Bot):
             channel_id = self.config["newAccountLogChannel"]
         elif event_type == "callsign_change":
             channel_id = self.config["callsignChangeLogChannel"]
-        elif event_type == "teleporation":
+        elif event_type == "teleportation":
             channel_id = self.config["teleporationLogChannel"]
         elif event_type == "activity_change":
             channel_id = self.config["activityChangeLogChannel"]
