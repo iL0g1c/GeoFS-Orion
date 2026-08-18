@@ -119,7 +119,7 @@ class GeoFSMonitor(commands.Cog):
                 self.logger.debug(f"Aircraft change: {uid} from {old_ac} to {ac}")
                 evts.append({'eventType':'aircraftChange','oldAircraft':old_ac,'newAircraft':ac,'timestamp':datetime.now()})
                 if configs['displayAircraftChanges']:
-                    self.bundled_events.append({'type': 'aircraft_change', 'data':{'acid':ac,'oldAircraft':old_ac,'newAircraft':ac}})
+                    self.bundled_events.append({'type': 'aircraft_change', 'data':{'acid':uid,'oldAircraft':old_ac,'newAircraft':ac}})
 
             # callsign change
             old_cs = exist_map.get(uid, {}).get('currentCallsign')
