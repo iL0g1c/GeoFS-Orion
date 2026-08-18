@@ -9,7 +9,7 @@ from tools.multiplayer_api import MultiplayerAPI
 from cogs.config import Config
 
 class ChatLogging(commands.Cog):
-    def __init__(self, bot, SessionID, AccountID, MongoDBDatabase):
+    def __init__(self, bot, SessionID, AccountID, MongoDBDatabase, Logger):
         self.bot = bot
         self._busy = False
         self._drop_count = 0
@@ -18,7 +18,7 @@ class ChatLogging(commands.Cog):
         self._last_msgid = None
         self._last_msgid_change_ts = time.time()
         self._tick_seq = 0
-        self.log = logging.getLogger("eventhorizon.chat")
+        self.logger = Logger
 
         # Initialize multiplayer session and configs
         SESSION_ID = SessionID
@@ -35,7 +35,7 @@ class ChatLogging(commands.Cog):
                 # gets geofs ID through handshake
                 await asyncio.to_thread(self.multiplayerAPI.handshake)
             except Exception as e:
-                self.log.error("Handshake failed at startup: %s", e)
+                self.logger.error("Handshake failed at startup: %s", e)
                 return
             # seeds the no-progress watchdog from current state
             # and starts session
@@ -44,10 +44,11 @@ class ChatLogging(commands.Cog):
             self.printMessages.start()
             self.chatHeartbeat.start()
     
-    chat_group = app_commands.Group(name="chat", description="GeoFS chat discord bridge (Historical BiFrost module)")
+    # chat_group = app_commands.Group(name="chat", description="GeoFS chat discord bridge (Historical BiFrost module)")
 
     @tasks.loop(seconds=5)
     async def printMessages(self):
+        print(1)
         # Chat logging loop
         chat_channel_id = self.config.load_config()["chatLogChannel"] # gets config
 
@@ -60,7 +61,7 @@ class ChatLogging(commands.Cog):
         t_tick = time.time()
         self._tick_seq += 1
         tick_id = self._tick_seq
-        self.log.debug(
+        self.logger.debug(
             "[tick %d] begin busy=%s drop=%d failures=%d myId=%s lastMsgId=%s",
             tick_id, self._busy, self._drop_count, self._failures,
             getattr(self.multiplayerAPI, "myID", None),
@@ -68,7 +69,7 @@ class ChatLogging(commands.Cog):
         )
         if self._busy: # prevents build up of requests if it has not completed since the last event loop
             self._drop_count += 1
-            self.log.debug("[tick %d] skipped (busy). drop_count=%d", tick_id, self._drop_count)
+            self.logger.debug("[tick %d] skipped (busy). drop_count=%d", tick_id, self._drop_count)
             return
         self._busy = True
         
@@ -80,7 +81,7 @@ class ChatLogging(commands.Cog):
                     asyncio.to_thread(self.multiplayerAPI.getMessages), timeout=20
                 )
                 dt = time.time() - t0
-                self.log.debug("[tick %d] getMessages ok in %.2fs; msgs=%d", tick_id, dt, len(messages))
+                self.logger.debug("[tick %d] getMessages ok in %.2fs; msgs=%d", tick_id, dt, len(messages))
                 self._failures = 0
 
                 self._last_success_ts = time.time()
@@ -94,30 +95,30 @@ class ChatLogging(commands.Cog):
                 else:
                     # If had OK calls but no lastMsgId movement for 10 minutes, re-handshake
                     if self._last_msgid_change_ts and (now - self._last_msgid_change_ts) > 600:
-                        self.log.warning("[tick %d] No chat progress for 10m (lastMsgId=%s). Forcing re-handshake.", tick_id, curr)
+                        self.logger.warning("[tick %d] No chat progress for 10m (lastMsgId=%s). Forcing re-handshake.", tick_id, curr)
                         try:
                             await asyncio.to_thread(self.multiplayerAPI.handshake)
                             # after successful handshake, refreshes markers
                             self._last_msgid = getattr(self.multiplayerAPI, "lastMsgID", curr)
                             self._last_msgid_change_ts = time.time()
                             self._failures = 0
-                            self.log.info("[tick %d] Re-handshake after no-progress succeeded (lastMsgId=%s).", tick_id, self._last_msgid)
+                            self.logger.info("[tick %d] Re-handshake after no-progress succeeded (lastMsgId=%s).", tick_id, self._last_msgid)
                         except Exception as e:
-                            self.log.error("[tick %d] Re-handshake after no-progress FAILED: %s", tick_id, e)
+                            self.logger.error("[tick %d] Re-handshake after no-progress FAILED: %s", tick_id, e)
 
             except asyncio.TimeoutError:
                 # another opportunity for rehandshake
                 self._failures = getattr(self, "_failures", 0) + 1
-                self.log.warning("[tick %d] getMessages TIMEOUT (failures=%d)", tick_id, self._failures)
+                self.logger.warning("[tick %d] getMessages TIMEOUT (failures=%d)", tick_id, self._failures)
                 if self._failures >= 3:
                     try:
                         await asyncio.to_thread(self.multiplayerAPI.handshake)
                         self._failures = 0
-                        self.log.info("[tick %d] re-handshake succeeded", tick_id)
+                        self.logger.info("[tick %d] re-handshake succeeded", tick_id)
                     except Exception as e:
-                        self.log.error("[tick %d] re-handshake failed: %s", tick_id, e)
+                        self.logger.error("[tick %d] re-handshake failed: %s", tick_id, e)
                 messages = []
-            
+            print(2)
             # builds message string for discord
             discord_message = ""
             mongodb_documents = []
@@ -126,38 +127,46 @@ class ChatLogging(commands.Cog):
                 mongodb_documents.append({
                     'accountID': msg.get('acid'),
                     'callsign': msg.get('cs'),
-                    'callsign': msg.get('msg'),
+                    'message': msg.get('msg'),
                     'timestamp': datetime.now()
                 })
-            if mongodb_documents != []:
-                self.mongo_db_database["chat_messages"].insert_many(mongodb_documents)
+            
             if discord_message != "":
                 await chat_channel.send(discord_message, allowed_mentions=AllowedMentions.none())
+            if mongodb_documents != []:
+                try:
+                   self.mongo_db_database["chat_messages"].insert_many(mongodb_documents)
+                except Exception as db_err:
+                    self.logger.error(f"MongoDB insertion failed: {db_err}")
+
         except Exception as e:
-            self.log.exception("[tick %d] printMessages error: %s", tick_id, e)
+            self.logger.exception("[tick %d] printMessages error: %s", tick_id, e)
         finally:
             self._busy = False
-            self.log.debug("[tick %d] end elapsed=%.2fs", tick_id, time.time() - t_tick)
+            self.logger.debug("[tick %d] end elapsed=%.2fs", tick_id, time.time() - t_tick)
             # If skipped ticks while busy, send a single summary notice now.
             if self._drop_count:
                 try:
                     await chat_channel.send(f"⚠️ Chat backlog: skipped {self._drop_count} cycle(s). Some messages may be missing.")
                 except Exception as e:
-                    self.log.error("[tick %d] drop notice error: %s", tick_id, e)
+                    self.logger.error("[tick %d] drop notice error: %s", tick_id, e)
                 finally:
                     self._drop_count = 0
 
+    @printMessages.before_loop
+    async def before_process_tasks(self):
+        await self.bot. wait_until_ready()
+
     @printMessages.error
-    async def printMessages_error(self, error):
-        # surfaces unhandled task exceptions
-        self.log.exception("[task] printMessages crashed: %s", error)
+    async def process_tasks_error(self, error):
+        self.logger.error(f"Process_tasks loop crashed with error: {error}")
     
     @tasks.loop(minutes=5)
     async def chatHeartbeat(self):
         # periodic “state-of-the-world” log to correlate with Discord RESUMEDs
         last_ok_age = time.time() - self._last_success_ts if self._last_success_ts else None
         msg_age = (time.time() - self._last_msgid_change_ts) if self._last_msgid_change_ts else None
-        self.log.info(
+        self.logger.info(
             "[hb] failures=%d drop=%d busy=%s last_ok_age=%s last_msgid_age=%s myId=%s lastMsgId=%s",
             self._failures, self._drop_count, self._busy,
             f"{last_ok_age:.0f}s" if last_ok_age is not None else "never",
@@ -170,4 +179,5 @@ async def setup(bot: commands.Bot):
     SessionID = getattr(bot, "SessionID")
     AccountID = getattr(bot, "AccountID")
     MongoDBDatabase = getattr(bot, "MongoDBDatabase")
-    await bot.add_cog(ChatLogging(bot, SessionID, AccountID, MongoDBDatabase))
+    Logger = getattr(bot, "Logger")
+    await bot.add_cog(ChatLogging(bot, SessionID, AccountID, MongoDBDatabase, Logger))
