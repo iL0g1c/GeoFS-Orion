@@ -43,8 +43,6 @@ class ChatLogging(commands.Cog):
             self._last_msgid_change_ts = time.time()
             self.printMessages.start()
             self.chatHeartbeat.start()
-    
-    # chat_group = app_commands.Group(name="chat", description="GeoFS chat discord bridge (Historical BiFrost module)")
 
     @tasks.loop(seconds=5)
     async def printMessages(self):
@@ -121,12 +119,13 @@ class ChatLogging(commands.Cog):
             discord_message = ""
             mongodb_documents = []
             for msg in messages:
-                discord_message += f"({msg.get('acid', '?')}) | {msg.get('cs','?')}: {msg.get('msg','')}\n"
+                timestamp = datetime.fromtimestamp(msg['serverTime'])
+                discord_message += f"(`{timestamp}` {msg.get('acid', '?')}) | {msg.get('cs','?')}: {msg.get('msg','')}\n"
                 mongodb_documents.append({
                     'accountID': msg.get('acid'),
                     'callsign': msg.get('cs'),
                     'message': msg.get('msg'),
-                    'timestamp': datetime.now()
+                    'timestamp': timestamp
                 })
             
             if discord_message != "":
@@ -172,10 +171,3 @@ class ChatLogging(commands.Cog):
             getattr(self.multiplayerAPI, "myID", None),
             getattr(self.multiplayerAPI, "lastMsgID", None)
         )
-
-async def setup(bot: commands.Bot):
-    SessionID = getattr(bot, "SessionID")
-    AccountID = getattr(bot, "AccountID")
-    MongoDBDatabase = getattr(bot, "MongoDBDatabase")
-    Logger = getattr(bot, "Logger")
-    await bot.add_cog(ChatLogging(bot, SessionID, AccountID, MongoDBDatabase, Logger))

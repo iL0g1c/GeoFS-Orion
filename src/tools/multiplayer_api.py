@@ -72,7 +72,8 @@ class MultiplayerAPI:
                 timeout=(5, 15),
                 max_json_retries=2,
                 cookies={"PHPSESSID": self.sessionID},
-                headers=self.headers,            )
+                headers=self.headers,     
+            )
             if not resp2:
                 print("Second handshake call failed, retrying in 5s…")
                 traceback.print_exc()
@@ -123,6 +124,7 @@ class MultiplayerAPI:
                 msgs = resp.get("chatMessages", [])
 
                 for m in msgs:
+                    m["serverTime"] = resp["serverTime"] / 1000
                     if "msg" in m and m["msg"]:
                         m["msg"] = unquote_plus(m["msg"])
                 self.log.debug("[mp] getMessages: ok in %.2fs; msgs=%d lastMsgId=%s", time.time() - t0, len(msgs), self.lastMsgID)

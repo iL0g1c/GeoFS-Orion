@@ -45,7 +45,7 @@ class GeoFSMonitor(commands.Cog):
             return c * R
 
     def process_users(self):
-        self.bundled_embeds = []
+        self.bundled_events = []
         raw = self.map_api.getUsers(False) or []
         seen = set(); unique = []
         for u in raw:
@@ -77,7 +77,7 @@ class GeoFSMonitor(commands.Cog):
                         {'$set':{'Online':False, 'lastOnline':datetime.now()}, '$push':{'events':evt}}
                     )
                 )
-                self.bundled_embeds.append({'type': 'activity_change','data': {'acid':doc['accountID'],'status': "offline"}})
+                self.bundled_events.append({'type': 'activity_change','data': {'acid':doc['accountID'],'status': "offline"}})
         # handle users going online
         going_online = list(user_coll.find({
             'Online': False,
@@ -93,14 +93,14 @@ class GeoFSMonitor(commands.Cog):
                 )
             )
             if configs['displayActivityChanges']:
-                self.bundled_embeds.append({'type': 'activity_change', 'data':{'acid':doc['accountID'],'status': "online"}})
+                self.bundled_events.append({'type': 'activity_change', 'data':{'acid':doc['accountID'],'status': "online"}})
 
         # Process current online users
         for u in unique:
             uid = u.userInfo['id']; cs = u.userInfo['callsign']; ac = u.aircraft['type']; pos = u.coordinates
             self.logger.debug(f"New account detected: {uid} with callsign {cs}.")
             if uid not in exist_map and configs['displayNewAccounts']:
-                self.bundled_embeds.append({'type': 'new_account', 'data':{'acid':uid,'callsign':cs}})
+                self.bundled_events.append({'type': 'new_account', 'data':{'acid':uid,'callsign':cs}})
 
             # event detection
             evts = []
@@ -111,15 +111,15 @@ class GeoFSMonitor(commands.Cog):
                 self.logger.debug(f"Account ID: {uid} teleported {round(dist)} km.")
                 if dist >= 50:
                     evts.append({'eventType':'teleportation','oldLatitude':old[0],'oldLongitude':old[1],'newLatitude':pos[0],'newLongitude':pos[1],'timestamp':datetime.now(),'distance':dist})
-                if configs["displayTeleporations"]:
-                    self.bundled_embeds.append({'type': 'teleportation', 'data':{'acid': uid, 'oldLatitude':old[0],'oldLongitude':old[1],'newLatitude':pos[0],'newLongitude':pos[1],'timestamp':datetime.now().strftime("%Y-%m-%d %H:%M:%S"),'distance':dist}})
+                    if configs["displayTeleporations"]:
+                        self.bundled_events.append({'type': 'teleportation', 'data':{'acid': uid, 'oldLatitude':old[0],'oldLongitude':old[1],'newLatitude':pos[0],'newLongitude':pos[1],'timestamp':datetime.now().strftime("%Y-%m-%d %H:%M:%S"),'distance':dist}})
             # aircraft change
             old_ac = exist_map.get(uid, {}).get('currentAircraft')
             if old_ac and ac != old_ac:
                 self.logger.debug(f"Aircraft change: {uid} from {old_ac} to {ac}")
                 evts.append({'eventType':'aircraftChange','oldAircraft':old_ac,'newAircraft':ac,'timestamp':datetime.now()})
                 if configs['displayAircraftChanges']:
-                    self.bundled_embeds.append({'type': 'aircraft_change', 'data':{'callsign':cs,'oldAircraft':old_ac,'newAircraft':ac}})
+                    self.bundled_events.append({'type': 'aircraft_change', 'data':{'acid':uid,'oldAircraft':old_ac,'newAircraft':ac}})
 
             # callsign change
             old_cs = exist_map.get(uid, {}).get('currentCallsign')
@@ -127,7 +127,7 @@ class GeoFSMonitor(commands.Cog):
                 self.logger.debug(f"Callsign change: {uid} from {old_cs} to {cs}")
                 evts.append({'eventType':'callsignChange','oldCallsign':old_cs,'newCallsign':cs,'timestamp':datetime.now()})
                 if configs['displayCallsignChanges']:
-                    self.bundled_embeds.append({'type': 'callsign_change', 'data':{'acid':uid,'oldCallsign':old_cs,'newCallsign':cs}})
+                    self.bundled_events.append({'type': 'callsign_change', 'data':{'acid':uid,'oldCallsign':old_cs,'newCallsign':cs}})
 
             # upsert user docllsign':old_cs,'newCallsign':cs
             upsert = UpdateOne(
@@ -143,9 +143,4 @@ class GeoFSMonitor(commands.Cog):
             self.batch_processors['users'].add_to_batch(upsert)
 
         self.batch_processors['users'].flush_batch()
-        return self.bundled_embeds
-
-async def setup(bot: commands.Bot):
-    Database = getattr(bot, "Database")
-    BotLogger = getattr(bot, "BotLogger")
-    await bot.add_cog(GeoFSMonitor(bot, Database, BotLogger))
+        return self.bundled_events
