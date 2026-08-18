@@ -1,13 +1,8 @@
-from pymongo import MongoClient, UpdateOne
 import time
-import logging
-import sys
 
 class MongoBatchProcessor:
-    def __init__(self, collection, batch_size=50, interval=5):
-        self.logger = logging.getLogger("MongoBatchProcessor")
-        self.logger.setLevel(logging.DEBUG)
-        self.logger.addHandler(logging.StreamHandler(sys.stdout))
+    def __init__(self, collection, logger, batch_size=50, interval=5):
+        self.logger = logger
 
         self.collection = collection
         self.batch_size = batch_size
@@ -23,7 +18,7 @@ class MongoBatchProcessor:
             try:
                 self.collection.bulk_write(self.batch, ordered=False)
             except Exception as e:
-                self.logger.log(40, f"Error flushing batch to MongoDB: {e}")
+                self.logger.error(f"Error flushing batch to MongoDB: {e}")
             finally:
                 self.batch = []
                 self.last_flush_time = time.time()

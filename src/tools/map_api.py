@@ -1,6 +1,5 @@
 import json
 import traceback
-import time
 from .http_client import safe_post
 
 
@@ -41,7 +40,7 @@ class MapAPI:
     """Client for interacting with the GeoFS map API."""
     def __init__(self):
         # Load aircraft code mappings
-        with open('../../data/aircraftcodes.json', 'r') as f:
+        with open('data/aircraft_codes.json', 'r') as f:
             self.aircraft_codes = json.load(f)
 
         self._responseList = []

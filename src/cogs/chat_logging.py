@@ -1,17 +1,15 @@
-import discord
 from discord import app_commands, AllowedMentions
 from discord.ext import tasks, commands
-import os
 import asyncio
 import logging, time
 import json
-from pymongo import MongoClient
+from datetime import datetime
 
-from bot import StableIntelBot
 from tools.multiplayer_api import MultiplayerAPI
+from cogs.config import Config
 
 class ChatLogging(commands.Cog):
-    def __init__(self, bot, SessionID, Account_ID, DatabaseToken, DatabaseName, DatabaseIP, DatabaseUser):
+    def __init__(self, bot, SessionID, AccountID, MongoDBDatabase):
         self.bot = bot
         self._busy = False
         self._drop_count = 0
@@ -24,20 +22,14 @@ class ChatLogging(commands.Cog):
 
         # Initialize multiplayer session and configs
         SESSION_ID = SessionID
-        ACCOUNT_ID = Account_ID
+        ACCOUNT_ID = AccountID
         self.multiplayerAPI = MultiplayerAPI(SESSION_ID, ACCOUNT_ID)
-        self.config = self.load_config("../config.json")
+        self.config = Config(self.bot)
 
-        # Initialize database connection
-        mongodb_url = f"mongodb://{DatabaseUser}:{DatabaseToken}@{DatabaseIP}:27017/{DatabaseName}?directConnection=true&serverSelectionTimeoutMS=2000&authSource={DatabaseName}"
-        self.mongo_db_client = MongoClient(mongodb_url)
-
-    def load_config(self, config_path):
-        with open(config_path, "r") as f:
-            return json.load(f)
+        self.mongo_db_database = MongoDBDatabase
     
     async def cog_load(self):
-        if self.config["displayChat"]:
+        if self.config.load_config()["displayChat"]:
             import asyncio
             try:
                 # gets geofs ID through handshake
@@ -57,7 +49,7 @@ class ChatLogging(commands.Cog):
     @tasks.loop(seconds=5)
     async def printMessages(self):
         # Chat logging loop
-        chat_channel_id = self.config["chatLogChannel"] # gets config
+        chat_channel_id = self.config.load_config()["chatLogChannel"] # gets config
 
         # gets chat channel and verifies
         chat_channel = self.bot.get_channel(chat_channel_id)
@@ -132,8 +124,13 @@ class ChatLogging(commands.Cog):
             for msg in messages:
                 discord_message += f"({msg.get('acid', '?')}) | {msg.get('cs','?')}: {msg.get('msg','')}\n"
                 mongodb_documents.append({
-                    "time": 
+                    'accountID': msg.get('acid'),
+                    'callsign': msg.get('cs'),
+                    'callsign': msg.get('msg'),
+                    'timestamp': datetime.now()
                 })
+            if mongodb_documents != []:
+                self.mongo_db_database["chat_messages"].insert_many(mongodb_documents)
             if discord_message != "":
                 await chat_channel.send(discord_message, allowed_mentions=AllowedMentions.none())
         except Exception as e:
@@ -169,5 +166,8 @@ class ChatLogging(commands.Cog):
             getattr(self.multiplayerAPI, "lastMsgID", None)
         )
 
-async def setup(bot: StableIntelBot):
-    await bot.add_cog(ChatLogging(bot))
+async def setup(bot: commands.Bot):
+    SessionID = getattr(bot, "SessionID")
+    AccountID = getattr(bot, "AccountID")
+    MongoDBDatabase = getattr(bot, "MongoDBDatabase")
+    await bot.add_cog(ChatLogging(bot, SessionID, AccountID, MongoDBDatabase))
