@@ -3,6 +3,8 @@ import math
 from datetime import datetime, timedelta
 from pymongo import UpdateOne
 from datetime import datetime
+import pandas as pd
+import numpy as np
 
 from cogs import config
 from tools import map_api, mongodb_batch_processor
@@ -28,44 +30,51 @@ class GeoFSMonitor(commands.Cog):
         }
         
 
-    def calculate_aircraft_change(self, old_lat, old_lon, new_lat, new_lon): # calculates the distance between the old and new pilot position
-            if None in (old_lat, old_lon, new_lat, new_lon):
-                return 0
-            # convert points to radians
-            lon1, lat1, lon2, lat2 = map(math.radians, [old_lon, old_lat, new_lon, new_lat])
-    
-            # harversine formula
-            dlon = lon2 - lon1
-            dlat = lat2 - lat1
-            a = math.sin(dlat/2)**2 + math.cos(lat1) * math.cos(lat2) * math.sin(dlon/2)**2
-            c = 2 * math.atan2(math.sqrt(a), math.sqrt(1-a))
-    
-            # radius of earth
-            R = 6371
-            return c * R
+    def calculate_aircraft_change(self, old_lat, old_lon, new_lat, new_lon):
+        lon1, lat1, lon2, lat2 = map(np.radians, [old_lon, old_lat, new_lon, new_lat])
+        
+        dlon = lon2 - lon1
+        dlat = lat2 - lat1
+        a = np.sin(dlat/2.0)**2 + np.cos(lat1) * np.cos(lat2) * np.sin(dlon/2.0)**2
+        c = 2 * np.arctan2(np.sqrt(a), np.sqrt(1 - a))
+        
+        R = 6371
+        return c * R
 
     def process_users(self):
         self.bundled_events = []
         raw = self.map_api.getUsers(False) or []
-        seen = set(); unique = []
-        for u in raw:
-            uid = u.userInfo['id']
-            if uid and uid not in seen:
-                seen.add(uid); unique.append(u)
-        self.current_online_users = unique
+        seen = set()
+
+        # flattens the data
+        flattened_current_users = []
+        for user in raw:
+            acid = user.userInfo['id']
+            if acid and acid not in seen:
+                seen.add(acid)
+                flattened_current_users.append({
+                    'accountID': acid,
+                    'callsign_current': user.userInfo['callsign'],
+                    'aircraft_current': user.aircraft['type'],
+                    'lat_current': user.coordinates[0],
+                    'lon_current': user.coordinates[1],
+                    'pos_current': user.coordinates
+                })
+        if not flattened_current_users:
+            return self.bundled_events
+        
+        # Process into dataframes
+        current_users = pd.DataFrame(flattened_current_users)
+        acids = current_users['accountID'].to_list()
 
         db = self.mongo_db_database
         user_coll = db['users']
         configs = self.config.load_config()
 
-        # prepare existing map
-        cur_ids = [u.userInfo['id'] for u in unique]
-        exist_map = {d['accountID']: d for d in user_coll.find({'accountID':{'$in':cur_ids}})}
-
         # Handle users going offline
         going_offline = list(user_coll.find({
             'Online': True,
-            'accountID': {'$nin': cur_ids}
+            'accountID': {'$nin': acids}
         }))
         for doc in going_offline:
             if datetime.now() - doc['lastOnline'] > timedelta(minutes=1):
@@ -73,7 +82,7 @@ class GeoFSMonitor(commands.Cog):
                 evt = {'eventType':'offline', 'timestamp':doc['lastOnline']}
                 self.batch_processors['users'].add_to_batch(
                     UpdateOne(
-                        {'accountID':doc['accountID']},
+                        {'accountID': doc['accountID']},
                         {'$set':{'Online':False, 'lastOnline':datetime.now()}, '$push':{'events':evt}}
                     )
                 )
@@ -81,8 +90,9 @@ class GeoFSMonitor(commands.Cog):
         # handle users going online
         going_online = list(user_coll.find({
             'Online': False,
-            'accountID': {'$in': cur_ids}
+            'accountID': {'$in': acids}
         }))
+
         for doc in going_online:
             self.logger.debug(f"Account ID: {doc['accountID']} is online.")
             evt = {'eventType':'online', 'timestamp':datetime.now()}
@@ -95,48 +105,120 @@ class GeoFSMonitor(commands.Cog):
             if configs['displayActivityChanges']:
                 self.bundled_events.append({'type': 'activity_change', 'data':{'acid':doc['accountID'],'status': "online"}})
 
-        # Process current online users
-        for u in unique:
-            uid = u.userInfo['id']; cs = u.userInfo['callsign']; ac = u.aircraft['type']; pos = u.coordinates
-            self.logger.debug(f"New account detected: {uid} with callsign {cs}.")
-            if uid not in exist_map and configs['displayNewAccounts']:
-                self.bundled_events.append({'type': 'new_account', 'data':{'acid':uid,'callsign':cs}})
+        existing_docs = list(user_coll.find({'accountID': {'$in': acids}}))
+        if existing_docs:
+            df_existing = pd.DataFrame(existing_docs)
+            if 'lastPosition' in df_existing.columns:
+                positions = df_existing['lastPosition'].apply(
+                    lambda x: x if isinstance(x, list) and len(x) >= 2 else [np.nan, np.nan]
+                )
+                df_existing[['lat_old', 'lon_old']] = pd.DataFrame(positions.tolist(), index=df_existing.index)
+            else:
+                df_existing['lat_old'] = np.nan
+                df_existing['lon_old'] = np.nan
+        else:
+            df_existing = pd.DataFrame(columns=['accountID', 'currentCallsign', 'currentAircraft', 'lat_old', 'lon_old'])
 
-            # event detection
+        # merge and calculate distance
+        df_merged = pd.merge(current_users, df_existing, on='accountID', how='left')
+        df_merged['distance'] = self.calculate_aircraft_change(
+            df_merged['lat_old'].astype(float),
+            df_merged['lon_old'].astype(float),
+            df_merged['lat_current'].astype(float),
+            df_merged['lon_current'].astype(float)
+        )
+
+        # create event masks
+        current_datetime = datetime.now()
+        str_current_datetime = current_datetime.strftime("%Y-%m-%d %H:%M:%S")
+        
+        df_merged['is_new'] = df_merged['currentCallsign'].isna()
+        df_merged['is_ac_change'] = df_merged['currentAircraft'].notna() & (df_merged['aircraft_current'] != df_merged['currentAircraft'])
+        df_merged['is_cs_change'] = df_merged['currentCallsign'].notna() & (df_merged['callsign_current'] != df_merged['currentCallsign'])
+        df_merged['is_teleport'] = df_merged['distance'].notna() & (df_merged['distance'] >= 50)
+
+
+
+
+        for row in df_merged.itertuples():
+            acid = row.accountID
+            callsign = row.callsign_current
+            aircraft = row.aircraft_current
+            position = row.pos_current
+            
             evts = []
-            # teleport
-            old = exist_map.get(uid, {}).get('lastPosition')
-            if old:
-                dist = self.calculate_aircraft_change(old[0], old[1], pos[0], pos[1])
-                self.logger.debug(f"Account ID: {uid} teleported {round(dist)} km.")
-                if dist >= 50:
-                    evts.append({'eventType':'teleportation','oldLatitude':old[0],'oldLongitude':old[1],'newLatitude':pos[0],'newLongitude':pos[1],'timestamp':datetime.now(),'distance':dist})
-                    if configs["displayTeleporations"]:
-                        self.bundled_events.append({'type': 'teleportation', 'data':{'acid': uid, 'oldLatitude':old[0],'oldLongitude':old[1],'newLatitude':pos[0],'newLongitude':pos[1],'timestamp':datetime.now().strftime("%Y-%m-%d %H:%M:%S"),'distance':dist}})
-            # aircraft change
-            old_ac = exist_map.get(uid, {}).get('currentAircraft')
-            if old_ac and ac != old_ac:
-                self.logger.debug(f"Aircraft change: {uid} from {old_ac} to {ac}")
-                evts.append({'eventType':'aircraftChange','oldAircraft':old_ac,'newAircraft':ac,'timestamp':datetime.now()})
+
+            if row.is_new and configs['displayNewAccounts']:
+                self.logger.debug(f"New account detected: {acid} with callsign {callsign}.")
+                self.bundled_events.append({'type': 'new_account', 'data': {'acid': acid, 'callsign': callsign}})
+
+            if getattr(row, 'is_teleport', False):
+                self.logger.debug(f"Account ID: {acid} teleported {round(row.distance)} km.")
+                evts.append({
+                    'eventType': 'teleportation',
+                    'oldLatitude': row.lat_old,
+                    'oldLongitude': row.lon_old,
+                    'newLatitude': row.lat_current,
+                    'newLongitude': row.lon_current,
+                    'timestamp': current_datetime,
+                    'distance': row.distance
+                })
+                if configs["displayTeleporations"]:
+                    self.bundled_events.append({
+                        'type': 'teleportation', 
+                        'data': {
+                            'acid': acid, 
+                            'oldLatitude': row.lat_old,
+                            'oldLongitude': row.lon_old,
+                            'newLatitude': row.lat_current,
+                            'newLongitude': row.lon_current,
+                            'timestamp': str_current_datetime,
+                            'distance': row.distance
+                        }
+                    })
+
+            if getattr(row, 'is_ac_change', False):
+                self.logger.debug(f"Aircraft change: {acid} from {row.currentAircraft} to {aircraft}")
+                evts.append({
+                    'eventType': 'aircraftChange',
+                    'oldAircraft': row.currentAircraft,
+                    'newAircraft': aircraft,
+                    'timestamp': current_datetime
+                })
                 if configs['displayAircraftChanges']:
-                    self.bundled_events.append({'type': 'aircraft_change', 'data':{'acid':uid,'oldAircraft':old_ac,'newAircraft':ac}})
+                    self.bundled_events.append({
+                        'type': 'aircraft_change', 
+                        'data': {'acid': acid, 'oldAircraft': row.currentAircraft, 'newAircraft': aircraft}
+                    })
 
-            # callsign change
-            old_cs = exist_map.get(uid, {}).get('currentCallsign')
-            if old_cs and old_cs != cs:
-                self.logger.debug(f"Callsign change: {uid} from {old_cs} to {cs}")
-                evts.append({'eventType':'callsignChange','oldCallsign':old_cs,'newCallsign':cs,'timestamp':datetime.now()})
+            if getattr(row, 'is_cs_change', False):
+                self.logger.debug(f"Callsign change: {acid} from {row.currentCallsign} to {callsign}")
+                evts.append({
+                    'eventType': 'callsignChange',
+                    'oldCallsign': row.currentCallsign,
+                    'newCallsign': callsign,
+                    'timestamp': current_datetime
+                })
                 if configs['displayCallsignChanges']:
-                    self.bundled_events.append({'type': 'callsign_change', 'data':{'acid':uid,'oldCallsign':old_cs,'newCallsign':cs}})
+                    self.bundled_events.append({
+                        'type': 'callsign_change', 
+                        'data': {'acid': acid, 'oldCallsign': row.currentCallsign, 'newCallsign': callsign}
+                    })
 
-            # upsert user docllsign':old_cs,'newCallsign':cs
+            # Upsert user document
             upsert = UpdateOne(
-                {'accountID':uid},
+                {'accountID': acid},
                 {
-                    '$setOnInsert':{'accountID':uid},
-                    '$set':{'currentCallsign':cs,'currentAircraft':ac,'Online':True,'lastOnline':datetime.now(),'lastPosition':pos},
-                    '$addToSet':{'pastCallsigns':cs},
-                    **({'$push':{'events':{'$each':evts}}} if evts else {})
+                    '$setOnInsert': {'accountID': acid},
+                    '$set': {
+                        'currentCallsign': callsign,
+                        'currentAircraft': aircraft,
+                        'Online': True,
+                        'lastOnline': current_datetime,
+                        'lastPosition': position
+                    },
+                    '$addToSet': {'pastCallsigns': callsign},
+                    **({'$push': {'events': {'$each': evts}}} if evts else {})
                 },
                 upsert=True
             )
