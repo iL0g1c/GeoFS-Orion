@@ -47,6 +47,10 @@ class GeoFSMonitor(commands.Cog):
     def process_users(self):
         self.bundled_events = []
         raw = self.map_api.getUsers(False) or []
+        if raw == []:
+            self.logger.warning("Map API returned no data. Skipping cycle.")
+            return self.bundled_events
+        
         seen = set(); unique = []
         for u in raw:
             uid = u.userInfo['id']
