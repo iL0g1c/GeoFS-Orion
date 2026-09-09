@@ -126,8 +126,8 @@ class ChatLogging(commands.Cog):
                 ansi_reset = "\u001b[0m"
                 discord_message += (
                     f"{ansi_light_gray}{timestamp}{ansi_reset} "
-                    f"({ansi_cyan}{msg['acid']}{ansi_reset}) | "
-                    f"{ansi_yellow}{msg['cs']}{ansi_reset}: {msg['msg']}\n"
+                    f"({ansi_cyan} {msg['acid']} {ansi_reset}) | "
+                    f"{ansi_yellow} {msg['cs']} {ansi_reset}: {msg['msg']}\n"
                 )
                 mongodb_documents.append({
                     'accountID': msg.get('acid'),
