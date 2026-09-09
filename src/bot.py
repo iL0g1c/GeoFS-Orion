@@ -64,33 +64,36 @@ class Orion(commands.Bot):
 
     @tasks.loop(seconds=1)
     async def process_tasks(self):
-        start_time = time.time()
-        geofs_monitor = self.get_cog("GeoFSMonitor")
-        # Collect data
-        data = await asyncio.to_thread(geofs_monitor.process_users)
+        try:
+            start_time = time.time()
+            geofs_monitor = self.get_cog("GeoFSMonitor")
+            # Collect data
+            data = await asyncio.to_thread(geofs_monitor.process_users)
 
-        # process tasks from the queue
-        batches = {
-            "aircraft_change": [],
-            "new_account": [],
-            "callsign_change": [],
-            "teleportation": [],
-            "activity_change": [],
-        }
+            # process tasks from the queue
+            batches = {
+                "aircraft_change": [],
+                "new_account": [],
+                "callsign_change": [],
+                "teleportation": [],
+                "activity_change": [],
+            }
 
-        for item in data:
-            event_type = item.get("type")
-            if event_type in batches:
-                batches[event_type].append(item.get("data", item))
+            for item in data:
+                event_type = item.get("type")
+                if event_type in batches:
+                    batches[event_type].append(item.get("data", item))
 
-        await self.dispatch_messages_batch("aircraft_change", batches["aircraft_change"], self.format_aircraft_messages)
-        await self.dispatch_messages_batch("new_account", batches["new_account"], self.format_new_account_messages)
-        await self.dispatch_messages_batch("callsign_change", batches["callsign_change"], self.format_callsign_messages)
-        await self.dispatch_messages_batch("teleportation", batches["teleportation"], self.format_teleport_messages)
-        await self.dispatch_messages_batch("activity_change", batches["activity_change"], self.format_activity_messages)
+            await self.dispatch_messages_batch("aircraft_change", batches["aircraft_change"], self.format_aircraft_messages)
+            await self.dispatch_messages_batch("new_account", batches["new_account"], self.format_new_account_messages)
+            await self.dispatch_messages_batch("callsign_change", batches["callsign_change"], self.format_callsign_messages)
+            await self.dispatch_messages_batch("teleportation", batches["teleportation"], self.format_teleport_messages)
+            await self.dispatch_messages_batch("activity_change", batches["activity_change"], self.format_activity_messages)
 
-        end_time = time.time()
-        self.logger.info(f"The loop took {end_time - start_time:.2f} seconds to execute.")
+            end_time = time.time()
+            self.logger.info(f"The loop took {end_time - start_time:.2f} seconds to execute.")
+        except Exception as e:
+            self.logger.error(f"process_tasks loop failed this tick: {e}")
 
     @process_tasks.before_loop
     async def before_process_tasks(self):
@@ -111,8 +114,13 @@ class Orion(commands.Bot):
         message_content = formatter_fn(items)
         if message_content:
             async with self.lock:
-                await channel.send(message_content)
-                await asyncio.sleep(self.throttleInterval)
+                try:
+                    await channel.send(message_content)
+                    await asyncio.sleep(self.throttleInterval)
+                except discord.HTTPException as e:
+                    self.logger.warning(f"Discord API failed while sending {event_type} messages: {e}")
+                except Exception as e:
+                    self.logger.error(f"Unexpected error sending {event_type} messages: {e}")
 
     def format_aircraft_messages(self, items: list[dict]) -> str:
         # \u001b[34m = Blue, \u001b[32m = Green, \u001b[33m = Yellow, \u001b[36m = Cyan, \u001b[0m = Reset
