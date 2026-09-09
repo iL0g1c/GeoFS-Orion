@@ -127,8 +127,8 @@ class Orion(commands.Bot):
         lines = ["```ansi"]
         for item in items[:15]:
             lines.append(
-                f"\u001b[34m[AIRCRAFT]\u001b[0m \u001b[32m{item['acid']}\u001b[0m: "
-                f"\u001b[33m{item['oldAircraft']}\u001b[0m -> \u001b[36m{item['newAircraft']}\u001b[0m"
+                f"\u001b[34m[AIRCRAFT]\u001b[0m \u001b[32m {item['acid']} \u001b[0m: "
+                f"\u001b[33m {item['oldAircraft']} \u001b[0m -> \u001b[36m {item['newAircraft']} \u001b[0m"
             )
         if len(items) > 15:
             lines.append(f"\u001b[30m... and {len(items) - 15} more\u001b[0m")
@@ -140,7 +140,7 @@ class Orion(commands.Bot):
         lines = ["```ansi"]
         for item in items[:15]:
             lines.append(
-                f"\u001b[35m[TELEPORT]\u001b[0m Account \u001b[32m{item['acid']}\u001b[0m moved \u001b[31m{round(item['distance'])} km\u001b[0m"
+                f"\u001b[35m[TELEPORT]\u001b[0m Account \u001b[32m {item['acid']} \u001b[0m moved \u001b[31m{round(item['distance'])} km\u001b[0m"
             )
         if len(items) > 15:
             lines.append(f"\u001b[30m... and {len(items) - 15} more\u001b[0m")
@@ -151,8 +151,8 @@ class Orion(commands.Bot):
         lines = ["```ansi"]
         for item in items[:15]:
             lines.append(
-                f"\u001b[36m[CALLSIGN]\u001b[0m Account \u001b[32m{item['acid']}\u001b[0m: "
-                f"\u001b[33m{item['oldCallsign']}\u001b[0m -> \u001b[36m{item['newCallsign']}\u001b[0m"
+                f"\u001b[36m[CALLSIGN]\u001b[0m Account \u001b[32m {item['acid']} \u001b[0m: "
+                f"\u001b[33m {item['oldCallsign']} \u001b[0m -> \u001b[36m {item['newCallsign']} \u001b[0m"
             )
         if len(items) > 15:
             lines.append(f"\u001b[30m... and {len(items) - 15} more\u001b[0m")
@@ -163,7 +163,7 @@ class Orion(commands.Bot):
         lines = ["```ansi"]
         for item in items[:15]:
             lines.append(
-                f"\u001b[32m[NEW ACCT]\u001b[0m \u001b[32m{item['acid']}\u001b[0m (\u001b[36m{item['callsign']}\u001b[0m)"
+                f"\u001b[32m[NEW ACCT]\u001b[0m \u001b[32m {item['acid']} \u001b[0m (\u001b[36m {item['callsign']} \u001b[0m)"
             )
         if len(items) > 15:
             lines.append(f"\u001b[30m... and {len(items) - 15} more\u001b[0m")
@@ -175,7 +175,7 @@ class Orion(commands.Bot):
         for item in items[:15]:
             status_color = "\u001b[32m" if item['status'] == 'online' else "\u001b[31m"
             lines.append(
-                f"\u001b[33m[ACTIVITY]\u001b[0m Account \u001b[36m{item['acid']}\u001b[0m is now {status_color}{item['status']}\u001b[0m"
+                f"\u001b[33m[ACTIVITY]\u001b[0m Account \u001b[36m {item['acid']} \u001b[0m is now {status_color}{item['status']}\u001b[0m"
             )
         if len(items) > 15:
             lines.append(f"\u001b[30m... and {len(items) - 15} more\u001b[0m")
